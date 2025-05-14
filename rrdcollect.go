@@ -1,5 +1,11 @@
 package rrdcollect
 
+import (
+	"sync"
+	"time"
+
+	"github.com/ziutek/rrd"
+)
 
 //step -> should align with what we write from our app. with tick, we prob don't need to worry too much about interpolation
 
@@ -14,10 +20,8 @@ type Options struct {
 type MetricsCollector struct {
 	// worker
 	// in memory store of metrics to be written
-	store sync.Map
-	// the prefix to the rrdtool db file. eg /etc/rrdtool/foo --> will created
-	// subfiles for each metric with this prefix
-	rrdprefix string
+	store   sync.Map
+	rrdPath string
 	// basic step size at which we update metrics (default 300) TODO -> Replace with some rrd underlying thing?
 	stepSize int
 }
@@ -28,6 +32,7 @@ type MetricsCollector struct {
 // auto metrics (like promhttp) or manual?
 
 // A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
+// this is limiting
 
 // Update the rrd table with current metrics
 func (m MetricsCollector) update() {
@@ -56,8 +61,15 @@ type reqMetrics struct {
 }
 
 // NewMetricsCollector creates a new met
-func NewMetricsCollector(rrdPath string) MetricsCollector {
-	return MetricsCollector
+func NewMetricsCollector(filename string) (MetricsCollector, error) {
+	// TODO parameterize
+	var step uint = 30 // seconds
+	c := rrd.NewCreator(filename, time.Now().Truncate(time.Duration(step)*time.Second), step)
+	// c. DS...
+	// c. RRA...
+	err := c.Create(false)
+	m := MetricsCollector{}
+	return m, err
 }
 
 // NumGoroutines
