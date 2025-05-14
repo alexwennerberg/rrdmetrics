@@ -1,19 +1,24 @@
 package rrdcollect
 
+
+//step -> should align with what we write from our app. with tick, we prob don't need to worry too much about interpolation
+
+// on shutdown -> write data immediately. this is a case in which interpolation
+// will be used. otherwise write when tick is aligned with bucket window
+
+// TODO: rrdcached?
+
 type Options struct {
-	// Schema mode
-	// automigrate -- the schema will automatically add or remove routes on startup to the rrd database (default)
-	// fixed -- the schema will not change, even if new routes are added or removed
-	SchemaMode string
 }
 
 type MetricsCollector struct {
 	// worker
 	// in memory store of metrics to be written
 	store sync.Map
-	// the path to the rrdtool db file
-	rrdPath string
-	// basic step size at which we update metrics (default 300) TODO -> Replace with some rrd underlying thing
+	// the prefix to the rrdtool db file. eg /etc/rrdtool/foo --> will created
+	// subfiles for each metric with this prefix
+	rrdprefix string
+	// basic step size at which we update metrics (default 300) TODO -> Replace with some rrd underlying thing?
 	stepSize int
 }
 
@@ -32,7 +37,7 @@ func (m MetricsCollector) update() {
 
 // TODO -- running median / pXX latency?
 
-// Defaults
+// Defaults ?
 //
 // DS:watts:GAUGE:5m:0:24000 \
 // RRA:AVERAGE:0.5:1s:10d \
@@ -42,9 +47,11 @@ func (m MetricsCollector) update() {
 //
 // broken down by route
 type reqMetrics struct {
+	// These should all be counters. stored as rps
 	requests     int
 	clientErrors int
 	serverErrors int
+	// I think this should be a gauge
 	totalLatency int // sum of all latencies in ms
 }
 
