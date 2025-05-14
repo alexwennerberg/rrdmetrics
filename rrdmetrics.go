@@ -1,4 +1,4 @@
-package rrdcollect
+package rrdmetrics
 
 import (
 	"sync"

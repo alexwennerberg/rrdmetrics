@@ -1,4 +1,4 @@
-rrdcollect
+rrd_metrics
 ==========
 
 Tools for instrumenting Go web apps with rrdtool as the backend. Basic analytics for small apps where heavier weight and more complex solutions may be overkill
