@@ -1,0 +1,4 @@
+github.com/go-chi/chi/v5 v5.2.1 h1:KOIHODQj58PmL80G2Eak4WdvUzjSJSm0vG72crDCqb8=
+github.com/go-chi/chi/v5 v5.2.1/go.mod h1:L2yAIGWB3H+phAw1NxKwWM+7eUH/lU8pOMm5hHcoops=
+github.com/ziutek/rrd v0.0.4 h1:/5geVHps7GtdlJzaC8WLh1u6mP/Z/Z8rcHyAhzSA4e0=
+github.com/ziutek/rrd v0.0.4/go.mod h1:PAFbtWhFYrVeILz+2a6OKKdLYk8RlPJotQXlj7O0Z0A=
