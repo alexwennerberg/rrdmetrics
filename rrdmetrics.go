@@ -11,16 +11,23 @@ import (
 )
 
 type MetricsCollector struct {
-	// worker
-	// in memory store of metrics to be written
 	mu      sync.RWMutex
 	buffer  map[string]int
 	rrdPath string
-	// rrd metric name -> value
+	step uint
 }
 
-// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
-// this is limiting
+func (m *MetricsCollector) start() {
+		// align ticker 
+		wait := time.Duration(m.step) * time.Second - time.Since(time.Now().Truncate(time.Duration(m.step) * time.Second))
+		time.Sleep(wait)
+		m.storeMetrics()
+		ticker := time.NewTicker(time.Duration(m.step) * time.Second)
+		for range ticker.C {
+			m.storeMetrics()
+		}
+		// TODO -- on shutdown, write metrics immediately
+}
 
 // Update the rrd table with current metrics
 func (m MetricsCollector) storeMetrics() {
@@ -33,16 +40,14 @@ func (m MetricsCollector) storeMetrics() {
 	for k,v := range m.buffer {
 		keys = append(keys, k)
 		args = append(args, v)
-		// TODO I want to null latency
-		m.buffer[k] = 0
+		// TODO split out guage vs absolute somehow
+		if k != "latency" {
+			m.buffer[k] = 0
+		}
 	}
 	if len(keys) > 0 {
 		upd.SetTemplate(keys...)
-		err := upd.Update(args...)
-		if err != nil {
-			// TODO squash errs
-			fmt.Println(err)
-		}
+		upd.Update(args...)
 	}
 }
 
@@ -70,14 +75,15 @@ func (m MetricsCollector) Middleware(next http.Handler) http.Handler {
 // TODO path middleware
 
 // Wrap -> overwrite metric name
-// names have to be 19 chars max ??, limited character set
+// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
+// this is limiting
 
 // +4 chars. 15 chars max then. that looks like:
 // abcdefghabcdefg_cnt
 // get_user_cnt
 // get_user_lat
 // get_user_ers
-// get_user_ercokkj:w
+// get_user_erc
 
 // updates an existing db with the new schema TODO
 func dbMigrate() {
@@ -87,6 +93,7 @@ func dbMigrate() {
 // 60 seconds (not configurable right now) with some reasonable rra defaults
 func NewCollector(filename string) (MetricsCollector, error) {
 	var step uint = 60
+	// TODO configure independently
 	c := rrd.NewCreator(filename, time.Now().Truncate(time.Duration(step)*time.Second), step)
 	c.DS("count", "ABSOLUTE", 900, 0, "U")
 	c.DS("client_err", "ABSOLUTE", 900, 0, "U")
@@ -104,18 +111,11 @@ func NewCollector(filename string) (MetricsCollector, error) {
 			"server_err": 0,
 		},
 		rrdPath: filename,
+		step: step,
 	}
-
+	// TODO move appropriately
 	go func() {
-		// align ticker 
-		wait := time.Duration(step) * time.Second - time.Since(time.Now().Truncate(time.Duration(step) * time.Second))
-		time.Sleep(wait)
-		m.storeMetrics()
-		ticker := time.NewTicker(time.Duration(step) * time.Second)
-		for range ticker.C {
-			m.storeMetrics()
-		}
-		// TODO -- on shutdown, write metrics immediately
+		m.start()
 	}()
 	return m, err
 }
