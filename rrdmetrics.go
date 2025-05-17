@@ -2,20 +2,13 @@ package rrdmetrics
 
 import (
 	"fmt"
-	"maps"
 	"net/http"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/ziutek/rrd"
 )
-
-//step -> should align with what we write from our app. with tick, we prob don't need to worry too much about interpolation
-
-// on shutdown -> write data immediately. this is a case in which interpolation
-// will be used. otherwise write when tick is aligned with bucket window
 
 type MetricsCollector struct {
 	// worker
@@ -26,32 +19,31 @@ type MetricsCollector struct {
 	// rrd metric name -> value
 }
 
-// start time will be the most recent
-// First update should
-// File per endpont -> no schema necessary
-// auto metrics (like promhttp) or manual?
-
 // A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
 // this is limiting
 
 // Update the rrd table with current metrics
 func (m MetricsCollector) storeMetrics() {
+	fmt.Printf("storing metrics %v\n at %d", m.buffer, time.Now().Unix())
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	upd := rrd.NewUpdater(m.rrdPath)
-	keys := slices.Sorted(maps.Keys(m.buffer))
-	values := slices.Sorted(maps.Values(m.buffer))
-	upd.SetTemplate(keys...)
-	var anySlice []interface{}
-    for _, v := range values{
-        anySlice = append(anySlice, v)
-    }
-	err := upd.Update(anySlice...)
-	if err != nil {
-		// TODO squash errs
-		fmt.Println(err)
+	var keys []string
+	args := []any{"N"}
+	for k,v := range m.buffer {
+		keys = append(keys, k)
+		args = append(args, v)
+		// TODO I want to null latency
+		m.buffer[k] = 0
 	}
-	clear(m.buffer)
+	if len(keys) > 0 {
+		upd.SetTemplate(keys...)
+		err := upd.Update(args...)
+		if err != nil {
+			// TODO squash errs
+			fmt.Println(err)
+		}
+	}
 }
 
 // Generate middleware that updates each request
@@ -80,11 +72,12 @@ func (m MetricsCollector) Middleware(next http.Handler) http.Handler {
 // Wrap -> overwrite metric name
 // names have to be 19 chars max ??, limited character set
 
-// +4 chars. 15 chars max then
+// +4 chars. 15 chars max then. that looks like:
+// abcdefghabcdefg_cnt
 // get_user_cnt
 // get_user_lat
 // get_user_ers
-// get_user_erc
+// get_user_ercokkj:w
 
 // updates an existing db with the new schema TODO
 func dbMigrate() {
@@ -95,26 +88,34 @@ func dbMigrate() {
 func NewCollector(filename string) (MetricsCollector, error) {
 	var step uint = 60
 	c := rrd.NewCreator(filename, time.Now().Truncate(time.Duration(step)*time.Second), step)
-	c.DS("count", "COUNTER", 900, 0, "U")
-	c.DS("client_err", "COUNTER", 900, 0, "U")
-	c.DS("server_err", "COUNTER", 900, 0, "U")
+	c.DS("count", "ABSOLUTE", 900, 0, "U")
+	c.DS("client_err", "ABSOLUTE", 900, 0, "U")
+	c.DS("server_err", "ABSOLUTE", 900, 0, "U")
 	c.DS("latency", "GAUGE", 900, 0, "U")
 	c.RRA("AVERAGE", 0.5, "1m", "90d")
 	c.RRA("AVERAGE", 0.5, "1h", "18M")
 	c.RRA("AVERAGE", 0.5, "1d", "10y")
 
-	err := c.Create(false)
-	m := MetricsCollector{}
+	err := c.Create(true) // TODO -- truncates currently
+	m := MetricsCollector{
+		buffer: map[string]int{
+			"count":      0,
+			"client_err": 0,
+			"server_err": 0,
+		},
+		rrdPath: filename,
+	}
 
 	go func() {
-		// align ticker
-		wait := time.Since(time.Now().Truncate(time.Duration(step) * time.Second))
+		// align ticker 
+		wait := time.Duration(step) * time.Second - time.Since(time.Now().Truncate(time.Duration(step) * time.Second))
 		time.Sleep(wait)
-
+		m.storeMetrics()
 		ticker := time.NewTicker(time.Duration(step) * time.Second)
 		for range ticker.C {
 			m.storeMetrics()
 		}
+		// TODO -- on shutdown, write metrics immediately
 	}()
 	return m, err
 }
