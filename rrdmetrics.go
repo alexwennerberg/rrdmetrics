@@ -43,6 +43,8 @@ func (m MetricsCollector) storeMetrics() {
 		// TODO split out guage vs absolute somehow
 		if k != "latency" {
 			m.buffer[k] = 0
+		} else {
+			delete(m.buffer, k)
 		}
 	}
 	if len(keys) > 0 {
