@@ -1,7 +1,6 @@
 package rrdmetrics
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ func (m *MetricsCollector) start() {
 
 // Update the rrd table with current metrics
 func (m MetricsCollector) storeMetrics() {
-	fmt.Printf("storing metrics %v\n at %d", m.buffer, time.Now().Unix())
+	// fmt.Printf("storing metrics %v\n at %d", m.buffer, time.Now().Unix())
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	upd := rrd.NewUpdater(m.rrdPath)
@@ -105,7 +104,8 @@ func NewCollector(filename string) (MetricsCollector, error) {
 	c.RRA("AVERAGE", 0.5, "1h", "18M")
 	c.RRA("AVERAGE", 0.5, "1d", "10y")
 
-	err := c.Create(true) // TODO -- truncates currently
+	c.Create(false) 
+	var err error = nil
 	m := MetricsCollector{
 		buffer: map[string]int{
 			"count":      0,
