@@ -11,7 +11,8 @@ import (
 
 type MetricsCollector struct {
 	mu      sync.RWMutex
-	buffer  map[string]int
+	// TODO be more precise with int/float typing -- read rrdtool docs
+	buffer  map[string]float64
 	rrdPath string
 	step uint
 }
@@ -60,6 +61,12 @@ func (m MetricsCollector) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(ww, r)
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		// running average
+		l := m.buffer["latency"]
+		l1 := float64(time.Since(start).Milliseconds())
+		c := m.buffer["count"]
+		m.buffer["latency"] = ((l * c) + l1)/(c+1)
+
 		m.buffer["count"]++
 		// Count
 		if ww.Status()/100 == 4 {
@@ -67,8 +74,6 @@ func (m MetricsCollector) Middleware(next http.Handler) http.Handler {
 		} else if ww.Status()/100 == 5 {
 			m.buffer["server_err"]++
 		}
-		// TODO make a running avg
-		m.buffer["latency"] = int(time.Since(start).Milliseconds())
 	}
 	return http.HandlerFunc(fn)
 }
@@ -107,7 +112,7 @@ func NewCollector(filename string) (MetricsCollector, error) {
 	c.Create(false) 
 	var err error = nil
 	m := MetricsCollector{
-		buffer: map[string]int{
+		buffer: map[string]float64{
 			"count":      0,
 			"client_err": 0,
 			"server_err": 0,
