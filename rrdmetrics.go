@@ -63,7 +63,7 @@ func (c *MetricsCollector) reset() {
 	for _, m := range c.metrics {
 		// gauge should not initialize to 0, but rather null/absent values
 		if m.dsType == "GAUGE" {
-			continue
+			delete(c.buffer, m.name)
 		}
 		c.buffer[m.name] = 0
 	}
