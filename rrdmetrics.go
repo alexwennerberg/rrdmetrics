@@ -12,9 +12,11 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/alexwennerberg/rrd"
 	"github.com/go-chi/chi"
@@ -265,10 +267,32 @@ func (c *MetricsCollector) ChiMetrics(r chi.Router) {
 }
 
 // Tries to build a metric name out of the route
-// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
-func routeMetric(path string) {
-	// replace / with _
-	// replace ' ' with _
-	// strip out { and }
-	// if too long, truncate
+// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_-].
+// we limit to 14 so we can keep the sub metric names
+func routeMetric(path string) string {
+	if path == "/" {
+		path = "root"
+	}
+	path = strings.Trim(path, "/")
+	path = strings.ReplaceAll(path, "/", "_")
+	path = strings.ReplaceAll(path, " ", "_")
+	path = stripNonAlpha(path)
+	if len(path) > 14 {
+		path = path[:15]
+	}
+	return path
+}
+
+func stripNonAlpha(input string) string {
+	var result []rune
+	for _, r := range input {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}
+
+// .... muxer or osmethign
+func GraphServer() {
 }
