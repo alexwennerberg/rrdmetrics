@@ -85,7 +85,7 @@ func (c *MetricsCollector) RegisterMetrics() error {
 	} else {
 		info, err := rrd.Info(c.rrdPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not get info for %s: %w", c.rrdPath, err)
 		}
 		var mnames []string
 		for _, metric := range c.metrics {
@@ -96,7 +96,7 @@ func (c *MetricsCollector) RegisterMetrics() error {
 		sort.Strings(mnames)
 		if !slices.Equal(rkeys, mnames) {
 			// TODO logging
-			fmt.Println("performing db migration")
+			fmt.Println("performing db migration %s", c.rrdPath)
 		}
 		creator.SetSource(c.rrdPath)
 	}
@@ -114,7 +114,7 @@ func (c *MetricsCollector) RegisterMetrics() error {
 	creator.RRA("AVERAGE", 0.5, "1d", "10y")
 	err = creator.Create(true)
 	if err != nil {
-		return err
+		return fmt.Errorf("trouble creating db file %s: %w", c.rrdPath, err)
 	}
 
 	// TODO Split out?
