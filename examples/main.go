@@ -1,9 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
-	"fmt"
 
 	"git.sr.ht/~aw/rrdmetrics"
 )
@@ -14,12 +14,15 @@ func pong(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	c, err := rrdmetrics.NewCollector("test.rrd")
+	c := rrdmetrics.NewCollector("test.rrd", 1)
+	mux := http.NewServeMux()
+	mux.Handle("/", c.Middleware(http.HandlerFunc(pong)))
+
+	err := c.RegisterMetrics()
+	fmt.Println("Registered metrics")
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	mux.Handle("/", c.Middleware(http.HandlerFunc(pong)))
 	err = http.ListenAndServe(":8080", mux)
 	log.Fatal(err)
 }

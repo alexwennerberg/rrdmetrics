@@ -1,3 +1,9 @@
+github.com/alexwennerberg/rrd v0.0.0-20250523021631-59fe9a642db4 h1:MFS7g5fyCQ9S8fEyYIsB7avHb+6R9zavFcf4XuU7I+k=
+github.com/alexwennerberg/rrd v0.0.0-20250523021631-59fe9a642db4/go.mod h1:bmhy/qrjGBEKV1LgNv8auvgxhnl1XDV2Ki9LjPVAerA=
+github.com/alexwennerberg/rrd v0.0.0-20250523025123-55f3f4a0ae23 h1:yXaJchk8cZclrddHj3SA+R+CCD/+l1Zvs1TjHLejRGo=
+github.com/alexwennerberg/rrd v0.0.0-20250523025123-55f3f4a0ae23/go.mod h1:bmhy/qrjGBEKV1LgNv8auvgxhnl1XDV2Ki9LjPVAerA=
+github.com/alexwennerberg/rrd v0.0.0-20250523034431-0a0c1035d1b7 h1:8mesUOu+ku++t5sqgnHsJaRp8sUToWfkjMeRIZP7cv4=
+github.com/alexwennerberg/rrd v0.0.0-20250523034431-0a0c1035d1b7/go.mod h1:bmhy/qrjGBEKV1LgNv8auvgxhnl1XDV2Ki9LjPVAerA=
 github.com/go-chi/chi/v5 v5.2.1 h1:KOIHODQj58PmL80G2Eak4WdvUzjSJSm0vG72crDCqb8=
 github.com/go-chi/chi/v5 v5.2.1/go.mod h1:L2yAIGWB3H+phAw1NxKwWM+7eUH/lU8pOMm5hHcoops=
 github.com/ziutek/rrd v0.0.4 h1:/5geVHps7GtdlJzaC8WLh1u6mP/Z/Z8rcHyAhzSA4e0=
