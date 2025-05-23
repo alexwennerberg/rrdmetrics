@@ -5,6 +5,8 @@ Tools for instrumenting Go web apps with rrdtool as the backend. Basic analytics
 
 Free yourself from Prometheus monoculture
 
+Has some chi-specific stuff, but you could use it without chi
+
 Requirements:
 rrdtool
 librrd

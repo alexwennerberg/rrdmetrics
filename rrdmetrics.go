@@ -1,19 +1,30 @@
+// rrdmetrics uses RRDTool as a backend to track application metrics, such as
+// for a running web server
 package rrdmetrics
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alexwennerberg/rrd"
+	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// Logger TODO figure out ideal
+type Logger interface {
+	Info(msg string, args ...any)
+}
 
 type MetricsCollector struct {
 	mu sync.RWMutex
@@ -23,6 +34,21 @@ type MetricsCollector struct {
 	rrdPath string
 	creator *rrd.Creator
 	metrics []Metric
+	log     Logger
+}
+
+// NewCollector creates a new metrics collector, which will collect every
+// step seconds. 60 is a good default
+func NewCollector(rrdPath string, step uint) MetricsCollector {
+	return MetricsCollector{
+		step:    step,
+		rrdPath: rrdPath,
+		buffer:  map[string]float64{},
+	}
+}
+
+func (c *MetricsCollector) SetLogger(l Logger) {
+	c.log = l
 }
 
 // a Metric being tracked by RRDTool
@@ -37,31 +63,47 @@ type Metric struct {
 	maxValue  *int
 }
 
-// TODO
-type ComputeMetric struct {
+type MetricOption func(*Metric)
+
+func WithHeartbeat(h int) MetricOption {
+	return func(m *Metric) {
+		m.heartbeat = h
+	}
 }
 
-// TODO setMinValue, setHeartbeat etc
+func WithMinValue(mn int) MetricOption {
+	return func(m *Metric) {
+		m.minValue = mn
+	}
+}
 
-func NewMetric(name, dsType string) Metric {
-	return Metric{
-		name:   name,
-		dsType: dsType,
-		// default values
+func WithMaxValue(mx int) MetricOption {
+	return func(m *Metric) {
+		m.maxValue = &mx
+	}
+}
+
+func NewMetric(name, dsType string, options ...MetricOption) Metric {
+	m := Metric{
+		name:      name,
+		dsType:    dsType,
 		heartbeat: 900,
 		minValue:  0,
 		maxValue:  nil,
 	}
+	for _, o := range options {
+		o(&m)
+	}
+	return m
 }
 
 func (c *MetricsCollector) AddMetric(m Metric) {
 	c.metrics = append(c.metrics, m)
 }
 
-// or initialize
 func (c *MetricsCollector) reset() {
 	for _, m := range c.metrics {
-		// gauge should not initialize to 0, but rather null/absent values
+		// GAUGE should not initialize to 0, but rather null/absent
 		if m.dsType == "GAUGE" {
 			delete(c.buffer, m.name)
 		}
@@ -69,10 +111,13 @@ func (c *MetricsCollector) reset() {
 	}
 }
 
-// RegisterMetrics ...
-// This has the potential to destroy data when performing a migration. 
-// TODO -- cleaner/more sophisticated migration tool?
-func (c *MetricsCollector) RegisterMetrics() error {
+// Track syncs the metrics to the RRD database and begins tracking them.
+// metrics will be stored in a buffer and written every `step` seconds
+// renaming an existing metric will lead to it being truncated -- use rrdtool tune
+// if this concerns you
+// Metrics with the same name with 'double up'. you're responsible for avoiding
+// namespace collisions
+func (c *MetricsCollector) Track() error {
 	if len(c.metrics) == 0 {
 		return nil
 	}
@@ -129,20 +174,28 @@ func (c *MetricsCollector) RegisterMetrics() error {
 }
 
 func (m *MetricsCollector) start() {
-	// align ticker to RRD
+	// On shutodwn, write metrics immediately
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		m.storeMetrics()
+		fmt.Println("stored metrics before shutdown")
+	}()
+
+	// Align ticker to RRD bucket
 	wait := time.Duration(m.step)*time.Second - time.Since(time.Now().Truncate(time.Duration(m.step)*time.Second))
 	time.Sleep(wait)
 	m.storeMetrics()
+
 	ticker := time.NewTicker(time.Duration(m.step) * time.Second)
 	for range ticker.C {
 		m.storeMetrics()
 	}
-	// TODO -- on shutdown, write metrics immediately
 }
 
 // Update the rrd table with current metrics
 func (m MetricsCollector) storeMetrics() {
-	// fmt.Printf("storing metrics %v\n at %d", m.buffer, time.Now().Unix())
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	upd := rrd.NewUpdater(m.rrdPath)
@@ -159,13 +212,29 @@ func (m MetricsCollector) storeMetrics() {
 	m.reset()
 }
 
-// Generate middleware that updates each request
-func (c *MetricsCollector) Middleware(next http.Handler) http.Handler {
-	c.AddMetric(NewMetric("count", "ABSOLUTE"))
-	c.AddMetric(NewMetric("client_err", "ABSOLUTE"))
-	c.AddMetric(NewMetric("server_err", "ABSOLUTE"))
-	c.AddMetric(NewMetric("latency", "GAUGE"))
-	c.AddMetric(NewMetric("latency_max", "GAUGE"))
+// TODO?
+// https://stackoverflow.com/questions/23166411/wrapper-for-arbitrary-function-in-go
+func (c *MetricsCollector) DBMetric() {}
+
+// Call this function regularly
+func (c *MetricsCollector) AddGaugeMetric(gf func() float64) {}
+
+// HTTPMetric Generates request middleware that updates each request
+// metricName must be 14 characters or shorter, based on rrd limitations
+func (c *MetricsCollector) HTTPMetric(metricName string, next http.Handler) http.Handler {
+	if len(metricName) > 14 {
+		metricName = metricName[:14]
+	}
+	cnt := metricName + "_cnt"   // Count
+	cerr := metricName + "_cerr" // Client Error
+	serr := metricName + "_serr" // Server Error
+	lat := metricName + "_lat"   // Latency Average
+	mlat := metricName + "_mlat" // Max Latency
+	c.AddMetric(NewMetric(cnt, "ABSOLUTE"))
+	c.AddMetric(NewMetric(cerr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(serr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(lat, "GAUGE"))
+	c.AddMetric(NewMetric(mlat, "GAUGE"))
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -173,50 +242,33 @@ func (c *MetricsCollector) Middleware(next http.Handler) http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		// running average
-		l := c.buffer["latency"]
+		l := c.buffer[lat]
 		l1 := float64(time.Since(start).Milliseconds())
-		ct := c.buffer["count"]
-		c.buffer["latency"] = ((l * ct) + l1) / (ct + 1)
-		if l > c.buffer["latency_max"] {
-			c.buffer["latency_max"] = l
+		ct := c.buffer[cnt]
+		c.buffer[lat] = ((l * ct) + l1) / (ct + 1)
+		if l > c.buffer[mlat] {
+			c.buffer[mlat] = l
 		}
-		c.buffer["count"]++
+		c.buffer[cnt]++
 		// Count
 		if ww.Status()/100 == 4 {
-			c.buffer["client_err"]++
+			c.buffer[cerr]++
 		} else if ww.Status()/100 == 5 {
-			c.buffer["server_err"]++
+			c.buffer[serr]++
 		}
 	}
 	return http.HandlerFunc(fn)
 }
 
-// TODO path middleware
-
-// Wrap -> overwrite metric name
-// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
-// this is limiting
-
-// +4 chars. 15 chars max then. that looks like:
-// abcdefghabcdefg_cnt
-// get_user_cnt
-// get_user_lat
-// get_user_latm
-// get_user_errs
-// get_user_errc
-
-func routeMetric(path string) {
-	// strings.Replace(path, "/", "_")
-	//
-	//
+// ChiMetrics wraps all routes associated with a chi router in
+func (c *MetricsCollector) ChiMetrics(r chi.Router) {
 }
 
-// NewCollector creates a new metrics collector, which will collect every
-// step seconds. 60 is a good default
-func NewCollector(rrdPath string, step uint) MetricsCollector {
-	return MetricsCollector{
-		step:    step,
-		rrdPath: rrdPath,
-		buffer:  map[string]float64{},
-	}
+// Tries to build a metric name out of the route
+// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_].
+func routeMetric(path string) {
+	// replace / with _
+	// replace ' ' with _
+	// strip out { and }
+	// if too long, truncate
 }
