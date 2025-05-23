@@ -79,6 +79,11 @@ func (c *MetricsCollector) RegisterMetrics() error {
 	c.reset()
 	creator := rrd.NewCreator(c.rrdPath, time.Now().Truncate(time.Duration(c.step)*time.Second), c.step)
 	var err error
+	// TODO Split out?
+	go func() {
+		c.start()
+	}()
+
 	// perform DB migration if we have added or removed any metrics
 	// how's performance on this?
 	if _, err := os.Stat(c.rrdPath); os.IsNotExist(err) {
@@ -97,8 +102,11 @@ func (c *MetricsCollector) RegisterMetrics() error {
 		if !slices.Equal(rkeys, mnames) {
 			// TODO logging
 			fmt.Println("performing db migration %s", c.rrdPath)
+			creator.SetSource(c.rrdPath)
+		} else {
+			// Do nothing
+			return nil
 		}
-		creator.SetSource(c.rrdPath)
 	}
 
 	for _, m := range c.metrics {
@@ -117,10 +125,6 @@ func (c *MetricsCollector) RegisterMetrics() error {
 		return fmt.Errorf("trouble creating db file %s: %w", c.rrdPath, err)
 	}
 
-	// TODO Split out?
-	go func() {
-		c.start()
-	}()
 	return nil
 }
 
