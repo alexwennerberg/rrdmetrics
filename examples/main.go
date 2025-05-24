@@ -20,12 +20,12 @@ func randGauge() float64 {
 
 func main() {
 	c := rrdmetrics.NewCollector("test.rrd", 1)
-	c.AddGaugeMetric(randGauge)
+	c.AddGaugeMetric("mygauge", randGauge)
 	mux := http.NewServeMux()
-	mux.Handle("/", c.Middleware(http.HandlerFunc(pong)))
+	mux.Handle("/", c.HTTPMetric("home", http.HandlerFunc(pong)))
 
-	err := c.RegisterMetrics()
-	fmt.Println("Registered metrics")
+	err := c.Track()
+	fmt.Println("Tracking metrics")
 	if err != nil {
 		log.Fatal(err)
 	}

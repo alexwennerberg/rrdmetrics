@@ -42,6 +42,7 @@ func NewCollector(rrdPath string, step uint) MetricsCollector {
 		step:    step,
 		rrdPath: rrdPath,
 		buffer:  map[string]float64{},
+		gauges:  map[string]func()float64{},
 	}
 }
 
@@ -144,7 +145,7 @@ func (c *MetricsCollector) Track() error {
 		sort.Strings(mnames)
 		if !slices.Equal(rkeys, mnames) {
 			// TODO logging
-			fmt.Println("performing db migration %s", c.rrdPath)
+			fmt.Printf("performing db migration %s\n", c.rrdPath)
 			creator.SetSource(c.rrdPath)
 		} else {
 			// Do nothing
@@ -179,6 +180,7 @@ func (m *MetricsCollector) start() {
 		<-ctx.Done()
 		m.storeMetrics()
 		fmt.Println("stored metrics before shutdown")
+		os.Exit(1)
 	}()
 
 	// Align ticker to RRD bucket
@@ -190,6 +192,14 @@ func (m *MetricsCollector) start() {
 	for range ticker.C {
 		m.storeMetrics()
 	}
+}
+
+// TODO -- some defaults
+func GoApplicationMetrics() {
+	// runtime.mem
+}
+
+func SystemMetrics() {
 }
 
 // Update the rrd table with current metrics
