@@ -19,14 +19,10 @@ import (
 	"unicode"
 
 	"github.com/alexwennerberg/rrd"
-	"github.com/go-chi/chi"
+	// "github.com/go-chi/chi"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// Logger TODO figure out ideal
-type Logger interface {
-	Info(msg string, args ...any)
-}
 
 type MetricsCollector struct {
 	mu sync.RWMutex
@@ -36,7 +32,7 @@ type MetricsCollector struct {
 	rrdPath string
 	creator *rrd.Creator
 	metrics []Metric
-	log     Logger
+	gauges map[string]func()float64
 }
 
 // NewCollector creates a new metrics collector, which will collect every
@@ -49,9 +45,9 @@ func NewCollector(rrdPath string, step uint) MetricsCollector {
 	}
 }
 
-func (c *MetricsCollector) SetLogger(l Logger) {
-	c.log = l
-}
+// func (c *MetricsCollector) SetLogger(l Logger) {
+	// c.log = l
+// }
 
 // a Metric being tracked by RRDTool
 type Metric struct {
@@ -163,10 +159,10 @@ func (c *MetricsCollector) Track() error {
 		}
 		creator.DS(m.name, m.dsType, m.heartbeat, m.minValue, maximum)
 	}
-	// sensible defaults TODO make configurable
-	creator.RRA("AVERAGE", 0.5, "1m", "90d")
-	creator.RRA("AVERAGE", 0.5, "1h", "18M")
-	creator.RRA("AVERAGE", 0.5, "1d", "10y")
+	// sensible? defaults TODO make configurable
+	creator.RRA("AVERAGE", 0.5, "1m", "7d")
+	creator.RRA("AVERAGE", 0.5, "1d", "12M")
+	creator.RRA("AVERAGE", 0.5, "1m", "10y")
 	err = creator.Create(true)
 	if err != nil {
 		return fmt.Errorf("trouble creating db file %s: %w", c.rrdPath, err)
@@ -197,13 +193,20 @@ func (m *MetricsCollector) start() {
 }
 
 // Update the rrd table with current metrics
-func (m MetricsCollector) storeMetrics() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	upd := rrd.NewUpdater(m.rrdPath)
+func (c *MetricsCollector) storeMetrics() {
+	upd := rrd.NewUpdater(c.rrdPath)
 	var keys []string
 	args := []any{"N"}
-	for k, v := range m.buffer {
+
+	// execute gauges
+	for k,v := range c.gauges {
+		keys = append(keys, k)
+		args = append(args, v())
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock() // does this even work
+	for k, v := range c.buffer {
 		keys = append(keys, k)
 		args = append(args, v)
 	}
@@ -211,7 +214,7 @@ func (m MetricsCollector) storeMetrics() {
 		upd.SetTemplate(keys...)
 		upd.Update(args...)
 	}
-	m.reset()
+	c.reset()
 }
 
 // TODO?
@@ -219,7 +222,10 @@ func (m MetricsCollector) storeMetrics() {
 func (c *MetricsCollector) DBMetric() {}
 
 // Call this function regularly
-func (c *MetricsCollector) AddGaugeMetric(gf func() float64) {}
+func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
+	c.AddMetric(NewMetric(name, "GAUGE"))
+	c.gauges[name] = gf
+}
 
 // HTTPMetric Generates request middleware that updates each request
 // metricName must be 14 characters or shorter, based on rrd limitations
@@ -262,9 +268,12 @@ func (c *MetricsCollector) HTTPMetric(metricName string, next http.Handler) http
 	return http.HandlerFunc(fn)
 }
 
-// ChiMetrics wraps all routes associated with a chi router in
-func (c *MetricsCollector) ChiMetrics(r chi.Router) {
-}
+// // ChiMetrics wraps all routes associated with a chi router in
+// func (c *MetricsCollector) ChiMetrics(r chi.Router) {
+// 	chi.Walk(r.Routes, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) {
+// 		mn := routeMetric(route)
+// 	})
+// }
 
 // Tries to build a metric name out of the route
 // A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_-].
