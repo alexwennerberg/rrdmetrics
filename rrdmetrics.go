@@ -35,15 +35,21 @@ type MetricsCollector struct {
 	gauges map[string]func()float64
 }
 
+type CollectorOption func(*MetricsCollector)
+
 // NewCollector creates a new metrics collector, which will collect every
 // step seconds. 60 is a good default
-func NewCollector(rrdPath string, step uint) MetricsCollector {
-	return MetricsCollector{
+func NewCollector(rrdPath string, step uint, options ...CollectorOption) MetricsCollector {
+	c := MetricsCollector{
 		step:    step,
 		rrdPath: rrdPath,
 		buffer:  map[string]float64{},
 		gauges:  map[string]func()float64{},
 	}
+	for _, o := range options {
+		o(&c)
+	}
+	return c
 }
 
 // func (c *MetricsCollector) SetLogger(l Logger) {
@@ -238,7 +244,7 @@ func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
 
 // HTTPMetric Generates request middleware that updates each request
 // metricName must be 14 characters or shorter, based on rrd limitations
-func (c *MetricsCollector) HTTPMetric(metricName string, next http.Handler) http.Handler {
+func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http.Handler {
 	if len(metricName) > 14 {
 		metricName = metricName[:14]
 	}
@@ -247,11 +253,13 @@ func (c *MetricsCollector) HTTPMetric(metricName string, next http.Handler) http
 	serr := metricName + "_serr" // Server Error
 	lat := metricName + "_lat"   // Latency Average
 	mlat := metricName + "_mlat" // Max Latency
+	// TODO: Don't add metrics here. Instead, store them and create them later
 	c.AddMetric(NewMetric(cnt, "ABSOLUTE"))
 	c.AddMetric(NewMetric(cerr, "ABSOLUTE"))
 	c.AddMetric(NewMetric(serr, "ABSOLUTE"))
 	c.AddMetric(NewMetric(lat, "GAUGE"))
 	c.AddMetric(NewMetric(mlat, "GAUGE"))
+	return func(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -273,16 +281,17 @@ func (c *MetricsCollector) HTTPMetric(metricName string, next http.Handler) http
 		} else if ww.Status()/100 == 5 {
 			c.buffer[serr]++
 		}
+		}
+		return http.HandlerFunc(fn)
 	}
-	return http.HandlerFunc(fn)
 }
 
-// // ChiMetrics wraps all routes associated with a chi router in
-// func (c *MetricsCollector) ChiMetrics(r chi.Router) {
-// 	chi.Walk(r.Routes, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) {
-// 		mn := routeMetric(route)
-// 	})
-// }
+
+// chi middleware
+// walk all routes and get a list of metrics
+// filter out metrics that already have middleware attached to them
+// create rrd metrics for them
+// create middleware fn for them
 
 // Tries to build a metric name out of the route
 // A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_-].

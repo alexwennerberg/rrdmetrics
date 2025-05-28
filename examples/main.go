@@ -22,13 +22,13 @@ func main() {
 	c := rrdmetrics.NewCollector("test.rrd", 1)
 	c.AddGaugeMetric("mygauge", randGauge)
 	mux := http.NewServeMux()
-	mux.Handle("/", c.HTTPMetric("home", http.HandlerFunc(pong)))
+	mux.Handle("/", c.HTTPMetric("home")(http.HandlerFunc(pong)))
 
 	err := c.Track()
 	fmt.Println("Tracking metrics")
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = http.ListenAndServe(":8080", mux)
+	err = http.ListenAndServe(":8080", c.HTTPMetric("total")(mux))
 	log.Fatal(err)
 }
