@@ -161,9 +161,9 @@ func (c *MetricsCollector) Track() error {
 		creator.DS(m.name, m.dsType, m.heartbeat, m.minValue, maximum)
 	}
 	// sensible? defaults TODO make configurable
-	creator.RRA("AVERAGE", 0.5, "1m", "7d")
-	creator.RRA("AVERAGE", 0.5, "1d", "12M")
-	creator.RRA("AVERAGE", 0.5, "1m", "10y")
+	creator.RRA("AVERAGE", 0.5, "1m", "10d")
+	creator.RRA("AVERAGE", 0.5, "1h", "18M") 
+	creator.RRA("AVERAGE", 0.5, "1d", "10y")
 	err = creator.Create(true)
 	if err != nil {
 		return fmt.Errorf("trouble creating db file %s: %w", c.rrdPath, err)
@@ -215,7 +215,7 @@ func (c *MetricsCollector) storeMetrics() {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock() // does this even work
+	defer c.mu.Unlock() 
 	for k, v := range c.buffer {
 		keys = append(keys, k)
 		args = append(args, v)
@@ -228,7 +228,6 @@ func (c *MetricsCollector) storeMetrics() {
 }
 
 // TODO?
-// https://stackoverflow.com/questions/23166411/wrapper-for-arbitrary-function-in-go
 func (c *MetricsCollector) DBMetric() {}
 
 // Call this function regularly
@@ -314,4 +313,5 @@ func stripNonAlpha(input string) string {
 
 // .... muxer or osmethign
 func GraphServer() {
+	// graph ...
 }
