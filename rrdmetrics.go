@@ -288,10 +288,20 @@ func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http
 
 
 // chi middleware
-// walk all routes and get a list of metrics
+// walk all routes and get a list of paths
 // filter out metrics that already have middleware attached to them
 // create rrd metrics for them
 // create middleware fn for them
+
+func (c *MetricsCollcetor) ChiMetrics(r chi.Router) {
+	routes := map[string]bool{}
+	chi.Walk(r.Routes, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+		// If not ...
+		routes[route] = true
+	}
+	for k,v := range route {
+	}
+}
 
 // Tries to build a metric name out of the route
 // A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_-].
