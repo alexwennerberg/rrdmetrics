@@ -32,8 +32,8 @@ func (c *ChiCollector) Run() {
 			return nil
 		})
 		for k, _ := range routes {
-			h := NewHTTPMetrics(routeMetric(k))
-			c.AddHTTPMetrics(h)
+			h := newHTTPMetrics(routeMetric(k))
+			c.addHTTPMetrics(h)
 		}
 	}
 	c.MetricsCollector.Run()

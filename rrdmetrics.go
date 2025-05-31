@@ -104,6 +104,7 @@ func NewMetric(name, dsType string, options ...MetricOption) Metric {
 	return m
 }
 
+// AddMetric adds a metric to the metrics being tracked
 func (c *MetricsCollector) AddMetric(m Metric) {
 	c.metrics = append(c.metrics, m)
 }
@@ -118,10 +119,9 @@ func (c *MetricsCollector) reset() {
 	}
 }
 
-// Track syncs the metrics to the RRD database and begins tracking them.
-// metrics will be stored in a buffer and written every `step` seconds
-// renaming an existing metric will lead to it being truncated -- use rrdtool tune
-// if this concerns you
+// Run will syncs the metrics to the RRD database and begin tracking them.
+// Renaming an existing metric will lead to it being truncated -- use rrdtool tune
+// if this concerns you.
 // Metrics with the same name with 'double up'. you're responsible for avoiding
 // namespace collisions
 func (c *MetricsCollector) Run() error {
@@ -186,7 +186,7 @@ func (m *MetricsCollector) start() {
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		m.storeMetrics()
+		m.store()
 		fmt.Println("stored metrics before shutdown")
 		os.Exit(1)
 	}()
@@ -194,24 +194,16 @@ func (m *MetricsCollector) start() {
 	// Align ticker to RRD bucket
 	wait := time.Duration(m.step)*time.Second - time.Since(time.Now().Truncate(time.Duration(m.step)*time.Second))
 	time.Sleep(wait)
-	m.storeMetrics()
+	m.store()
 
 	ticker := time.NewTicker(time.Duration(m.step) * time.Second)
 	for range ticker.C {
-		m.storeMetrics()
+		m.store()
 	}
 }
 
-// TODO -- some defaults
-func GoApplicationMetrics() {
-	// runtime.mem
-}
-
-func SystemMetrics() {
-}
-
-// Update the rrd table with current metrics
-func (c *MetricsCollector) storeMetrics() {
+// update the rrd table with current metrics
+func (c *MetricsCollector) store() {
 	upd := rrd.NewUpdater(c.rrdPath)
 	var keys []string
 	args := []any{"N"}
@@ -235,56 +227,31 @@ func (c *MetricsCollector) storeMetrics() {
 	c.reset()
 }
 
-// TODO?
-func (c *MetricsCollector) DBMetric() {}
-
-// Call this function regularly
+// AddGaugeMetric will start tracking a metric of a given name whose value is
+// fetched by the function.
 func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
 	c.AddMetric(NewMetric(name, "GAUGE"))
 	c.gauges[name] = gf
 }
 
-type HTTPMetrics struct {
-	cnt  string
-	serr string
-	cerr string
-	lat  string
-	mlat string
-}
-
-func NewHTTPMetrics(metricName string) HTTPMetrics {
-	var h HTTPMetrics
-	h.cnt = metricName + "_cnt"   // Count
-	h.cerr = metricName + "_cerr" // Client Error
-	h.serr = metricName + "_serr" // Server Error
-	h.lat = metricName + "_lat"   // Latency Average
-	h.mlat = metricName + "_mlat" // Max Latency
-	return h
-}
-
-func (c *MetricsCollector) AddHTTPMetrics(hm HTTPMetrics) {
-	c.AddMetric(NewMetric(hm.cnt, "ABSOLUTE"))
-	c.AddMetric(NewMetric(hm.cerr, "ABSOLUTE"))
-	c.AddMetric(NewMetric(hm.serr, "ABSOLUTE"))
-	c.AddMetric(NewMetric(hm.lat, "GAUGE"))
-	c.AddMetric(NewMetric(hm.mlat, "GAUGE"))
-}
-
+// HTTPMetric returns a middleware that will start collecting metrics for a
+// handler the metric name will be metricName, which must be 14 characters max
+// and only consist of alphanumeric, _ or -
 func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http.Handler {
-	h := NewHTTPMetrics(metricName)
-	c.AddHTTPMetrics(h)
-	// truncate
+	h := newHTTPMetrics(metricName)
+	c.addHTTPMetrics(h)
+	// TODO better cleaning here
 	if len(metricName) > 14 {
 		metricName = metricName[:14]
 	}
 	return c.httpMetric(func(_ *http.Request) string { return metricName })
 }
 
-// collects metric
+// build a middleware that actually collects metric
 func (c *MetricsCollector) httpMetric(nameFn func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			m := NewHTTPMetrics(nameFn(r))
+			m := newHTTPMetrics(nameFn(r))
 			start := time.Now()
 			// TODO remove chi dependency
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -310,7 +277,28 @@ func (c *MetricsCollector) httpMetric(nameFn func(r *http.Request) string) func(
 	}
 }
 
-// .... muxer or osmethign
-func GraphServer() {
-	// graph ...
+type httpMetrics struct {
+	cnt  string
+	serr string
+	cerr string
+	lat  string
+	mlat string
+}
+
+func newHTTPMetrics(metricName string) httpMetrics {
+	var h httpMetrics
+	h.cnt = metricName + "_cnt"   // Count
+	h.cerr = metricName + "_cerr" // Client Error
+	h.serr = metricName + "_serr" // Server Error
+	h.lat = metricName + "_lat"   // Latency Average
+	h.mlat = metricName + "_mlat" // Max Latency
+	return h
+}
+
+func (c *MetricsCollector) addHTTPMetrics(hm httpMetrics) {
+	c.AddMetric(NewMetric(hm.cnt, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.cerr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.serr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.lat, "GAUGE"))
+	c.AddMetric(NewMetric(hm.mlat, "GAUGE"))
 }
