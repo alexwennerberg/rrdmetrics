@@ -60,7 +60,7 @@ func routeMetric(path string) string {
 	path = strings.ReplaceAll(path, " ", "_")
 	path = stripNonAlpha(path)
 	if len(path) > 14 {
-		path = path[:15]
+		path = path[:14]
 	}
 	return path
 }
