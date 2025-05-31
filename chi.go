@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 )
 
 // ChiCollector extends MetricsCollector with some chi-specific stuff
@@ -23,7 +23,7 @@ func (c *ChiCollector) RouteMetrics() func(http.Handler) http.Handler {
 	return c.httpMetric(func(r *http.Request) string { return routeMetric(chi.RouteContext(r.Context()).RoutePattern()) })
 }
 
-func (c *ChiCollector) Run() {
+func (c *ChiCollector) Run() error {
 	if c.auto {
 		// add all the Chi routes as metrics, based on path
 		routes := map[string]bool{}
@@ -36,7 +36,7 @@ func (c *ChiCollector) Run() {
 			c.addHTTPMetrics(h)
 		}
 	}
-	c.MetricsCollector.Run()
+	return c.MetricsCollector.Run()
 }
 
 // NewChiCollector extends the metrics collector with some Chi-specific stuff
