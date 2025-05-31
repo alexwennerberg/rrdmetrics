@@ -203,7 +203,7 @@ func (m *MetricsCollector) start() {
 }
 
 // update the rrd table with current metrics
-func (c *MetricsCollector) store() {
+func (c *MetricsCollector) store() error {
 	upd := rrd.NewUpdater(c.rrdPath)
 	var keys []string
 	args := []any{"N"}
@@ -223,9 +223,14 @@ func (c *MetricsCollector) store() {
 	fmt.Println(c.buffer)
 	if len(keys) > 0 {
 		upd.SetTemplate(keys...)
-		upd.Update(args...)
+		err := upd.Update(args...)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
 	}
 	c.reset()
+	return nil
 }
 
 // AddGaugeMetric will start tracking a metric of a given name whose value is

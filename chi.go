@@ -55,6 +55,9 @@ func routeMetric(path string) string {
 	if path == "/" {
 		path = "root"
 	}
+	if path == "" {
+		path = "unknown"
+	}
 	path = strings.Trim(path, "/")
 	path = strings.ReplaceAll(path, "/", "_")
 	path = strings.ReplaceAll(path, " ", "_")
