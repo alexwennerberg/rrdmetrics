@@ -28,11 +28,11 @@ func (c *ChiCollector) Run() error {
 		// add all the Chi routes as metrics, based on path
 		routes := map[string]bool{}
 		chi.Walk(c.chi, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
-			routes[route] = true
+			routes[routeMetric(route)] = true
 			return nil
 		})
 		for k, _ := range routes {
-			h := newHTTPMetrics(routeMetric(k))
+			h := newHTTPMetrics(k)
 			c.addHTTPMetrics(h)
 		}
 	}
