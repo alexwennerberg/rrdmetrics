@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"net/http"
 
-	"git.sr.ht/~aw/rrdmetrics"
-	"github.com/go-chi/chi"
+	"github.com/alexwennerberg/rrdmetrics"
+	"github.com/go-chi/chi/v5"
 )
 
 func pong(w http.ResponseWriter, r *http.Request) {
@@ -38,10 +38,14 @@ func main() {
 	a := rrdmetrics.NewCollector("test.rrd", rrdmetrics.WithStepSize(5))
 	c := a.NewChiCollector(r)
 	r.Use(c.RouteMetrics())
+	r.Use(c.HTTPMetric("total"))
 	r.HandleFunc("/", pong)
 	r.HandleFunc("/ping", pong)
-	r.HandleFunc("/pong", pong)
-	c.Run()
+	r.HandleFunc("/pang", pong)
+	err := c.Run()
+	if err != nil {
+		fmt.Println(err)
+	}
 	fmt.Println("starting server")
 	http.ListenAndServe(":8080", r)
 }

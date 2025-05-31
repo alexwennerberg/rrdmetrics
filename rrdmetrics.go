@@ -220,6 +220,7 @@ func (c *MetricsCollector) store() {
 		keys = append(keys, k)
 		args = append(args, v)
 	}
+	fmt.Println(c.buffer)
 	if len(keys) > 0 {
 		upd.SetTemplate(keys...)
 		upd.Update(args...)
@@ -250,11 +251,11 @@ func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http
 func (c *MetricsCollector) httpMetric(nameFn func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			m := newHTTPMetrics(nameFn(r))
 			start := time.Now()
 			// TODO remove chi dependency
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
+			m := newHTTPMetrics(nameFn(r))
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			// running average
