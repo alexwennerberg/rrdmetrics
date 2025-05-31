@@ -240,9 +240,8 @@ func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
 func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http.Handler {
 	h := newHTTPMetrics(metricName)
 	c.addHTTPMetrics(h)
-	// TODO better cleaning here
 	if len(metricName) > 14 {
-		metricName = metricName[:14]
+		metricName = stripNonAlpha(metricName[:14])
 	}
 	return c.httpMetric(func(_ *http.Request) string { return metricName })
 }
