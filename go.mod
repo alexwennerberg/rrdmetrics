@@ -1,4 +1,4 @@
-module git.sr.ht/~aw/rrdmetrics
+module github.com/alexwennerberg/rrdmetrics
 
 go 1.23
 
