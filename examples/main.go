@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net/http"
 	"math/rand"
+	"net/http"
 
 	"git.sr.ht/~aw/rrdmetrics"
+	"github.com/go-chi/chi"
 )
 
 func pong(w http.ResponseWriter, r *http.Request) {
@@ -18,17 +18,30 @@ func randGauge() float64 {
 	return rand.Float64()
 }
 
-func main() {
-	c := rrdmetrics.NewCollector("test.rrd", 1)
-	c.AddGaugeMetric("mygauge", randGauge)
-	mux := http.NewServeMux()
-	mux.Handle("/", c.HTTPMetric("home")(http.HandlerFunc(pong)))
+// func stdlib() {
+// 	c := rrdmetrics.NewCollector("test.rrd")
+// 	c.AddGaugeMetric("mygauge", randGauge)
+// 	mux := http.NewServeMux()
+// 	mux.Handle("/", c.HTTPMetric("home")(http.HandlerFunc(pong)))
 
-	err := c.Track()
-	fmt.Println("Tracking metrics")
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = http.ListenAndServe(":8080", c.HTTPMetric("total")(mux))
-	log.Fatal(err)
+// 	err := c.Track()
+// 	fmt.Println("Tracking metrics")
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	err = http.ListenAndServe(":8080", c.HTTPMetric("total")(mux))
+// 	log.Fatal(err)
+// }
+
+func main() {
+	r := chi.NewRouter()
+	a := rrdmetrics.NewCollector("test.rrd", rrdmetrics.WithStepSize(5))
+	c := a.NewChiCollector(r)
+	r.Use(c.RouteMetrics())
+	r.HandleFunc("/", pong)
+	r.HandleFunc("/ping", pong)
+	r.HandleFunc("/pong", pong)
+	c.Run()
+	fmt.Println("starting server")
+	http.ListenAndServe(":8080", r)
 }

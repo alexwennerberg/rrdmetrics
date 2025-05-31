@@ -12,18 +12,15 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/alexwennerberg/rrd"
-	// "github.com/go-chi/chi"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-
+// MetricsCollector
 type MetricsCollector struct {
 	mu sync.RWMutex
 	// TODO distinguish int v float
@@ -32,19 +29,26 @@ type MetricsCollector struct {
 	rrdPath string
 	creator *rrd.Creator
 	metrics []Metric
-	gauges map[string]func()float64
+	gauges  map[string]func() float64
 }
 
 type CollectorOption func(*MetricsCollector)
 
-// NewCollector creates a new metrics collector, which will collect every
-// step seconds. 60 is a good default
-func NewCollector(rrdPath string, step uint, options ...CollectorOption) MetricsCollector {
+// WithStepSize configures the step size, ie, how frequently in seconds the
+// metric collector writes to RRD
+func WithStepSize(s uint) CollectorOption {
+	return func(m *MetricsCollector) {
+		m.step = s
+	}
+}
+
+// NewCollector creates a new metrics collector
+func NewCollector(rrdPath string, options ...CollectorOption) MetricsCollector {
 	c := MetricsCollector{
-		step:    step,
+		step:    60,
 		rrdPath: rrdPath,
 		buffer:  map[string]float64{},
-		gauges:  map[string]func()float64{},
+		gauges:  map[string]func() float64{},
 	}
 	for _, o := range options {
 		o(&c)
@@ -52,11 +56,9 @@ func NewCollector(rrdPath string, step uint, options ...CollectorOption) Metrics
 	return c
 }
 
-// func (c *MetricsCollector) SetLogger(l Logger) {
-	// c.log = l
-// }
-
-// a Metric being tracked by RRDTool
+// Metric is a Metric being tracked by RRDTool
+// metrics share the same namespace, so it's up to you to make sure that
+// they don't collide
 type Metric struct {
 	name string
 	// GAUGE (float) | COUNTER (int) | DERIVE (int) | DCOUNTER (float) | DDERIVE (float) | ABSOLUTE (int?). COMPUTE not yet supported
@@ -122,7 +124,7 @@ func (c *MetricsCollector) reset() {
 // if this concerns you
 // Metrics with the same name with 'double up'. you're responsible for avoiding
 // namespace collisions
-func (c *MetricsCollector) Track() error {
+func (c *MetricsCollector) Run() error {
 	if len(c.metrics) == 0 {
 		return nil
 	}
@@ -151,7 +153,7 @@ func (c *MetricsCollector) Track() error {
 		sort.Strings(mnames)
 		if !slices.Equal(rkeys, mnames) {
 			// TODO logging
-			fmt.Printf("performing db migration %s\n", c.rrdPath)
+			fmt.Printf("performing db migration %s. new metric names: %s\n", c.rrdPath, mnames)
 			creator.SetSource(c.rrdPath)
 		} else {
 			// Do nothing
@@ -168,7 +170,7 @@ func (c *MetricsCollector) Track() error {
 	}
 	// sensible? defaults TODO make configurable
 	creator.RRA("AVERAGE", 0.5, "1m", "10d")
-	creator.RRA("AVERAGE", 0.5, "1h", "18M") 
+	creator.RRA("AVERAGE", 0.5, "1h", "18M")
 	creator.RRA("AVERAGE", 0.5, "1d", "10y")
 	err = creator.Create(true)
 	if err != nil {
@@ -215,13 +217,13 @@ func (c *MetricsCollector) storeMetrics() {
 	args := []any{"N"}
 
 	// execute gauges
-	for k,v := range c.gauges {
+	for k, v := range c.gauges {
 		keys = append(keys, k)
 		args = append(args, v())
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock() 
+	defer c.mu.Unlock()
 	for k, v := range c.buffer {
 		keys = append(keys, k)
 		args = append(args, v)
@@ -242,92 +244,70 @@ func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
 	c.gauges[name] = gf
 }
 
-// HTTPMetric Generates request middleware that updates each request
-// metricName must be 14 characters or shorter, based on rrd limitations
+type HTTPMetrics struct {
+	cnt  string
+	serr string
+	cerr string
+	lat  string
+	mlat string
+}
+
+func NewHTTPMetrics(metricName string) HTTPMetrics {
+	var h HTTPMetrics
+	h.cnt = metricName + "_cnt"   // Count
+	h.cerr = metricName + "_cerr" // Client Error
+	h.serr = metricName + "_serr" // Server Error
+	h.lat = metricName + "_lat"   // Latency Average
+	h.mlat = metricName + "_mlat" // Max Latency
+	return h
+}
+
+func (c *MetricsCollector) AddHTTPMetrics(hm HTTPMetrics) {
+	c.AddMetric(NewMetric(hm.cnt, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.cerr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.serr, "ABSOLUTE"))
+	c.AddMetric(NewMetric(hm.lat, "GAUGE"))
+	c.AddMetric(NewMetric(hm.mlat, "GAUGE"))
+}
+
 func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http.Handler {
+	h := NewHTTPMetrics(metricName)
+	c.AddHTTPMetrics(h)
+	// truncate
 	if len(metricName) > 14 {
 		metricName = metricName[:14]
 	}
-	cnt := metricName + "_cnt"   // Count
-	cerr := metricName + "_cerr" // Client Error
-	serr := metricName + "_serr" // Server Error
-	lat := metricName + "_lat"   // Latency Average
-	mlat := metricName + "_mlat" // Max Latency
-	// TODO: Don't add metrics here. Instead, store them and create them later
-	c.AddMetric(NewMetric(cnt, "ABSOLUTE"))
-	c.AddMetric(NewMetric(cerr, "ABSOLUTE"))
-	c.AddMetric(NewMetric(serr, "ABSOLUTE"))
-	c.AddMetric(NewMetric(lat, "GAUGE"))
-	c.AddMetric(NewMetric(mlat, "GAUGE"))
+	return c.httpMetric(func(_ *http.Request) string { return metricName })
+}
+
+// collects metric
+func (c *MetricsCollector) httpMetric(nameFn func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		next.ServeHTTP(ww, r)
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		// running average
-		l := c.buffer[lat]
-		l1 := float64(time.Since(start).Milliseconds())
-		ct := c.buffer[cnt]
-		c.buffer[lat] = ((l * ct) + l1) / (ct + 1)
-		if l > c.buffer[mlat] {
-			c.buffer[mlat] = l
-		}
-		c.buffer[cnt]++
-		// Count
-		if ww.Status()/100 == 4 {
-			c.buffer[cerr]++
-		} else if ww.Status()/100 == 5 {
-			c.buffer[serr]++
-		}
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			m := NewHTTPMetrics(nameFn(r))
+			start := time.Now()
+			// TODO remove chi dependency
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			// running average
+			l := c.buffer[m.lat]
+			l1 := float64(time.Since(start).Milliseconds())
+			ct := c.buffer[m.cnt]
+			c.buffer[m.lat] = ((l * ct) + l1) / (ct + 1)
+			if l > c.buffer[m.mlat] {
+				c.buffer[m.mlat] = l
+			}
+			c.buffer[m.cnt]++
+			if ww.Status()/100 == 4 {
+				c.buffer[m.cerr]++
+			} else if ww.Status()/100 == 5 {
+				c.buffer[m.serr]++
+			}
 		}
 		return http.HandlerFunc(fn)
 	}
-}
-
-
-// chi middleware
-// walk all routes and get a list of paths
-// filter out metrics that already have middleware attached to them
-// create rrd metrics for them
-// create middleware fn for them
-
-func (c *MetricsCollcetor) ChiMetrics(r chi.Router) {
-	routes := map[string]bool{}
-	chi.Walk(r.Routes, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
-		// If not ...
-		routes[route] = true
-	}
-	for k,v := range route {
-	}
-}
-
-// Tries to build a metric name out of the route
-// A ds-name must be 1 to 19 characters long in the characters [a-zA-Z0-9_-].
-// we limit to 14 so we can keep the sub metric names
-func routeMetric(path string) string {
-	if path == "/" {
-		path = "root"
-	}
-	path = strings.Trim(path, "/")
-	path = strings.ReplaceAll(path, "/", "_")
-	path = strings.ReplaceAll(path, " ", "_")
-	path = stripNonAlpha(path)
-	if len(path) > 14 {
-		path = path[:15]
-	}
-	return path
-}
-
-func stripNonAlpha(input string) string {
-	var result []rune
-	for _, r := range input {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			result = append(result, r)
-		}
-	}
-	return string(result)
 }
 
 // .... muxer or osmethign
