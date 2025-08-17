@@ -20,13 +20,19 @@ func (c *ChiCollector) RouteMetrics() func(http.Handler) http.Handler {
 	// MAYBE: figure out some way to 'override' routes?
 	// the problem is I don't love putting them in a map
 	c.auto = true
-	return c.httpMetric(func(r *http.Request) string { return routeMetric(chi.RouteContext(r.Context()).RoutePattern()) })
+	return c.httpMetric(func(r *http.Request) string {
+		m := routeMetric(chi.RouteContext(r.Context()).RoutePattern())
+		if m == "" {
+			return "unknown"
+		}
+		return m
+	})
 }
 
 func (c *ChiCollector) Run() error {
 	if c.auto {
-		// add all the Chi routes as metrics, based on path
-		routes := map[string]bool{}
+		// add all the Chi routes as metrics, based on path. unknown as fallback
+		routes := map[string]bool{"unknown": true}
 		chi.Walk(c.chi, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 			routes[routeMetric(route)] = true
 			return nil
@@ -54,9 +60,6 @@ func (c *MetricsCollector) NewChiCollector(m *chi.Mux) ChiCollector {
 func routeMetric(path string) string {
 	if path == "/" {
 		path = "root"
-	}
-	if path == "" {
-		path = "unknown"
 	}
 	path = strings.Trim(path, "/")
 	path = strings.ReplaceAll(path, "/", "_")
