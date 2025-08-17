@@ -3,7 +3,6 @@ package rrdmetrics
 import (
 	"net/http"
 	"strings"
-	"unicode"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -33,11 +32,14 @@ func (c *ChiCollector) Run() error {
 	if c.auto {
 		// add all the Chi routes as metrics, based on path. unknown as fallback
 		routes := map[string]bool{"unknown": true}
-		chi.Walk(c.chi, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+		err := chi.Walk(c.chi, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 			routes[routeMetric(route)] = true
 			return nil
 		})
-		for k, _ := range routes {
+		if err != nil {
+			return err
+		}
+		for k := range routes {
 			h := newHTTPMetrics(k)
 			c.addHTTPMetrics(h)
 		}
@@ -64,19 +66,20 @@ func routeMetric(path string) string {
 	path = strings.Trim(path, "/")
 	path = strings.ReplaceAll(path, "/", "_")
 	path = strings.ReplaceAll(path, " ", "_")
-	path = stripNonAlpha(path)
-	if len(path) > 14 {
-		path = path[:14]
-	}
+	path = sanitizeMetricName(path)
 	return path
 }
 
-func stripNonAlpha(input string) string {
-	var result []rune
+func sanitizeMetricName(input string) string {
+	var result strings.Builder
 	for _, r := range input {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			result = append(result, r)
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			result.WriteRune(r)
 		}
 	}
-	return string(result)
+	output := result.String()
+	if len(output) > 14 {
+		output = output[:14]
+	}
+	return output
 }

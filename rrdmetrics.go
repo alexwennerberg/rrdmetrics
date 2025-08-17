@@ -114,8 +114,9 @@ func (c *MetricsCollector) reset() {
 		// GAUGE should not initialize to 0, but rather null/absent
 		if m.dsType == "GAUGE" {
 			delete(c.buffer, m.name)
+		} else {
+			c.buffer[m.name] = 0
 		}
-		c.buffer[m.name] = 0
 	}
 }
 
@@ -220,7 +221,6 @@ func (c *MetricsCollector) store() error {
 		keys = append(keys, k)
 		args = append(args, v)
 	}
-	fmt.Println(c.buffer)
 	if len(keys) > 0 {
 		upd.SetTemplate(keys...)
 		err := upd.Update(args...)
@@ -244,11 +244,9 @@ func (c *MetricsCollector) AddGaugeMetric(name string, gf func() float64) {
 // handler the metric name will be metricName, which must be 14 characters max
 // and only consist of alphanumeric, _ or -
 func (c *MetricsCollector) HTTPMetric(metricName string) func(http.Handler) http.Handler {
+	metricName = sanitizeMetricName(metricName)
 	h := newHTTPMetrics(metricName)
 	c.addHTTPMetrics(h)
-	if len(metricName) > 14 {
-		metricName = stripNonAlpha(metricName[:14])
-	}
 	return c.httpMetric(func(_ *http.Request) string { return metricName })
 }
 
@@ -268,8 +266,8 @@ func (c *MetricsCollector) httpMetric(nameFn func(r *http.Request) string) func(
 			l1 := float64(time.Since(start).Milliseconds())
 			ct := c.buffer[m.cnt]
 			c.buffer[m.lat] = ((l * ct) + l1) / (ct + 1)
-			if l > c.buffer[m.mlat] {
-				c.buffer[m.mlat] = l
+			if l1 > c.buffer[m.mlat] {
+				c.buffer[m.mlat] = l1
 			}
 			c.buffer[m.cnt]++
 			if ww.Status()/100 == 4 {
